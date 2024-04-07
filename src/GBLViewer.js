@@ -20,20 +20,28 @@ const GBLViewer = ({ gblFile, textureEnvironment, textureBackground }) => {
             // Create renderer
             rendererRef.current = new THREE.WebGLRenderer({ antialias: true, canvas: canvasRef.current });
             rendererRef.current.setSize(window.innerWidth, window.innerHeight);
+            rendererRef.current.shadowMap.enabled = true; // Включение использования теней
 
             // Create PMREMGenerator
             pmremGeneratorRef.current = new PMREMGenerator(rendererRef.current);
 
-            camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera = new THREE.PerspectiveCamera(35, window.innerWidth / window.innerHeight, 0.1, 10000);
             camera.position.set(0, 0, 5);
 
             // Add lighting
             const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
             scene.add(ambientLight);
 
-            const directionalLight = new THREE.DirectionalLight(0xffffff, 0.5);
-            directionalLight.position.set(1, 1, 1).normalize();
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 1.5);
+            directionalLight.position.set(1, 100, 50).normalize();
+            directionalLight.castShadow = true; // Включение использования теней для источника света
             scene.add(directionalLight);
+
+            // Настройка теней для источника света
+            directionalLight.shadow.mapSize.width = 1024; // ширина теневой карты
+            directionalLight.shadow.mapSize.height = 1024; // высота теневой карты
+            directionalLight.shadow.camera.near = 0.5; // ближняя плоскость для теневого проецирования
+            directionalLight.shadow.camera.far = 50; // дальняя плоскость для теневого проецирования
 
             // Load texture for environment map
             new THREE.TextureLoader().load(
@@ -66,12 +74,32 @@ const GBLViewer = ({ gblFile, textureEnvironment, textureBackground }) => {
             loader.load(
                 gblFile,
                 (gltf) => {
-                    scene.add(gltf.scene);
+                    gltf.scene.traverse((child) => {
+                        if (child.isMesh) {
+                            child.castShadow = true; // Разрешение объекту проецировать тени
+                            child.receiveShadow = true; // Разрешение объекту принимать тени от других объектов
+                        }
+                    });
+
+                    // Получение размеров и центра модели
                     const box = new THREE.Box3().setFromObject(gltf.scene);
                     const center = box.getCenter(new THREE.Vector3());
                     const size = box.getSize(new THREE.Vector3());
-                    camera.position.set(size.x, size.z, size.x);
 
+                    // Создание пола
+                    const floorGeometry = new THREE.PlaneGeometry(size.x * 1.5, size.z * 1.5, 32, 32); // Создание геометрии пола
+                    const floorMaterial = new THREE.MeshStandardMaterial({ color: 0x808080, side: THREE.DoubleSide }); // Создание материала для пола
+                    const floor = new THREE.Mesh(floorGeometry, floorMaterial); // Создание объекта пола
+                    floor.rotation.x = -Math.PI / 2; // Поворот пола, чтобы он лежал плоско
+                    floor.receiveShadow = true; // Разрешение полу принимать тени
+                    scene.add(floor); // Добавление пола в сцену
+
+                    // Позиция модели над полом
+                    gltf.scene.position.set(center.x, size.y / 2, center.z); // Позиционирование модели над полом
+                    scene.add(gltf.scene); // Добавление модели на сцену
+
+                    // Установка позиции камеры и точки, куда она смотрит
+                    camera.position.set(center.x + size.x, size.y, center.z + size.z * 3);
                     controls.target = center;
                     camera.lookAt(center);
                 },
@@ -92,6 +120,7 @@ const GBLViewer = ({ gblFile, textureEnvironment, textureBackground }) => {
             requestAnimationFrame(animate);
             rendererRef.current.render(scene, camera);
             controls.update();
+            rendererRef.current.shadowMap.needsUpdate = true; // Обновление теней на каждом кадре
         }
 
         init();
